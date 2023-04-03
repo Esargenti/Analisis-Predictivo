@@ -1,0 +1,312 @@
+---
+title: "Análisis Predictivo - Examen 1"
+author: "Emilia Sargenti"
+date:  "`r format(Sys.Date())`"
+output: 
+  bookdown::html_document2:
+    theme: readable
+    toc: true #TRUE to include a table of contents in the output
+    toc_depth: 1 # Depth of headers to include in table of contents
+    toc_float: true
+    code_download: false
+    number_sections: true
+    citation_package: natbib
+link-citations: yes
+bibliography: []
+---
+
+```{r clean,  message=F, include=FALSE}
+library(knitr)
+library(dplyr)
+library(lubridate)
+library(GGally)
+library(ggpubr)
+library(ggplot2)
+library(skimr)
+library(tidyverse)
+library(gridExtra)
+library(RColorBrewer)
+library(corrplot)
+library(cowplot)
+library(kableExtra)
+options(dplyr.summarise.inform = FALSE)
+base <- read.csv("london_merged.csv",sep=",")
+```
+
+
+## Introducción
+```{r,echo=FALSE}
+variables_cant <- dim(base)[2]
+registros_cant <- dim(base)[1]
+```
+
+El presente trabajo tiene como objetivo analizar la base de datos London Bike Share obtenida de Kaggle, la cual se puede encontrar en el siguiente link: https://www.kaggle.com/datasets/hmavrodiev/london-bike-sharing-dataset .
+
+Esta base cuenta con `r variables_cant` variables y `r registros_cant` registros en donde se presenta la información acerca de este nuevo sistema de alquiler de bicicletas ubicada en la ciudad de Londres, Reino Unido. La información fue recabada desde Enero de 2015 a Enero de 2017.
+
+El objetivo principal es poder predecir el número de bicicletas de alquiler en la ciudad de Londres por hora o por día en función del entorno y de la estación.
+
+```{r, echo=FALSE}
+glimpse(base)
+```
+
+## Exploración de variables
+La base de datos presenta las siguiente variables: 
+
+- Timestamp: timestamp field for grouping the data
+
+- cnt: the count of a new bike shares
+
+- t1: real temperature in C
+
+- t2: temperature in C "feels like"
+
+- hum: humidity in percentage
+
+- wind_speed: wind speed in km/h
+
+- weather_code: category of the weather 
+  
+  (1=Clear; mostly clear but have some values with haze/fog/patches of fog/ fog in vicinity,
+  
+   2=scattered clouds / few clouds,
+  
+   3 = Broken clouds,
+  
+   4 = Cloudy,
+  
+   7 = Rain/ light Rain shower/ Light rain,
+  
+   10 = rain with thunderstorm,
+  
+   26 = snowfall,
+  
+   94 = Freezing Fog)
+
+- is_holiday: boolean field (1=holiday, 0=non holiday)
+
+- is_weekend: boolean field (1=if the day is weekend, 0=the day is not weekend)
+
+- season: category field meteorological seasons (0=spring, 1=summer, 2=fall, 3=winter)
+
+La variable a predecir es:
+
+  - cnt: the count of a new bike shares
+  
+Una vez revisado todas las variables se decidió que se utilizarán todas ellas, sin embargo algunas de ellas serán modificadas con el fin de facilitar el trabajo. En primer lugar, la variable *cnt* se le cambiará el nombre a *count*. Por otro lado la variable *timestamp* será dividida en 4 variables distintas que se llamarán *year*,*month* ,*day*, *time*
+```{r, echo=FALSE}  
+df <- data.frame(base)
+df <- df %>% rename("count"="cnt")
+```
+```{r, echo=FALSE} 
+df$day<-day(df$timestamp)
+df$month<-month(df$timestamp)
+df$year<-year(df$timestamp)
+datos_convertidos<-ymd_hms(df$timestamp)
+df$time<-hour(datos_convertidos)
+df_definitivo<-head(df)
+
+```
+
+```{r, echo=FALSE}
+kable(df_definitivo, format = "html", table.attr = "style='width:90%;'",digits = 3, format.args = list(big.mark = ",",scientific = FALSE)) %>% 
+  kableExtra::kable_styling()
+  options(knitr.kable.NA = '')
+```
+
+
+Para continuar con el análisis de la base, se buscó si existe algun valores duplicados o missing value.
+```{r, echo=FALSE}  
+duplicados=anyDuplicated(base)
+df_na<-sapply(base, function(x) sum(is.na(x)))
+df_na %>%
+  kbl() %>%
+  kable_styling()
+```
+A partir de los resultados obetnidos se puede confirmar que la base cuenta `r duplicados` valores duplicados y no cuenta con ningun missing value. Esto quiere decir que no es necesario hacer otra modificación a la base.
+
+Luego de hacer los cambios necesarios y revisar que la base no tuviese missing values o duplicados, obtenemos un resumen general de como quedó la base.
+
+#Variables Categoricas
+```{r, echo=FALSE}  
+df_categoricas = df %>% select_if(function(x) !is.numeric(x))
+df_categoricas<-summary(df_categoricas)
+```
+
+```{r, echo=FALSE}
+kable(df_categoricas, format = "html", table.attr = "style='width:90%;'",digits = 3, format.args = list(big.mark = ",",scientific = FALSE)) %>% 
+  kableExtra::kable_styling()
+  options(knitr.kable.NA = '')
+```
+Mediante la tabla se puede observar que todas las variables categoricas contienen la misma cantidad de registros confirmarmando la falta de missing values.
+
+
+#Variables Numericas
+```{r, echo=FALSE}  
+df_numericas=df%>%select_if(is.numeric)
+```
+
+```{r, echo=FALSE}
+df_summary=summary(df_numericas)
+kable(df_summary, format = "html", table.attr = "style='width:90%;'",digits = 3, format.args = list(big.mark = ",",scientific = FALSE),caption = "Summary las variables numericas") %>% 
+  kableExtra::kable_styling()
+
+```
+
+Boxplot de las variables numericas
+```{r, echo=FALSE}  
+boxplot(df$count,main="Outliers",xlab = "Cantidad de bicicletas usadas",col='#42A59F')
+boxplot(df$t1,main="Outliers",xlab = "Temperatura1", col='#42A59F')
+boxplot(df$t2,main="Outliers",xlab = "Temperatura2", col= '#42A59F')
+boxplot(df$hum,main="Outliers",xlab = "Humedad", col='#42A59F')
+boxplot(df$wind_speed,main="Outliers",xlab = "Wind Speed", col= '#42A59F')
+```
+
+Una vez realizados los boxplot se decidió no imputar ningun outliers ya que son considerados como datos veridicos y no fuera de los rangos alcanzables por cada variable.
+Se continuó el análisis con la fabricación de una matriz de correlación.
+
+#Correlaciones
+```{r, echo=FALSE}  
+ GGally::ggcorr(
+  df, method=c("pairwise","spearman"),  
+  label=T, hjust=1, label_size=2, layout.exp=10, size=3)
+```
+
+```{r, echo=FALSE} 
+cor_matrix = cor(df_numericas, method="spearman", use="pairwise")
+cor_matrix[upper.tri(cor_matrix, diag=T)] = NA
+df_cor = cor_matrix %>% as.table() %>% as.data.frame()
+df_cor %>% 
+  rename(corr = Freq) %>% 
+  filter(!is.na(corr) & Var1 != Var2) %>% 
+  arrange(-abs(corr)) %>% 
+  head(10) %>% 
+  knitr::kable() %>%
+  kableExtra::kable_styling()
+```
+
+Se puede notar como las variables *t1* y *t2* tiene una correlación altamente positiva, lo cual es coherente ya que son dependientes de cada una. En el caso contrario podemos ver que que la humedad tiene una correlación negativa con las variables de temperatura y de cantidad de bicicletas usadas.
+A partir de esta matrz de correlación, se decidió mostrar la relación entre 3 grupos de variables. 2 de ellas con baja relación y una con una alta relación
+
+
+```{r, echo=FALSE}
+cor(df$t1, df$t2, method="pearson")
+cor(df$t1, df$wind_speed, method="pearson")
+cor(df$t1, df$hum, method="pearson")
+```
+
+```{r, echo=FALSE} 
+ggplot(df) +
+    geom_point(aes(t2,t1), colour="pink")
+```
+
+```{r, echo=FALSE} 
+ggplot(df) +
+    geom_point(aes(t1,wind_speed), colour='#0077B6')
+```
+
+```{r, echo=FALSE} 
+ggplot(df, aes(x=t1, y=hum, color=season)) +
+  geom_point() +
+  NULL
+```
+
+Como última instancia del análisis, se prosiguió con las visualizaciones consideradas necesarias.
+
+#Visualizaciones
+```{r, echo=FALSE}
+seasons_avg <- df %>% 
+  group_by(season) %>%
+  summarise(avg_season = mean(count))
+
+monthly_avg <- df %>% 
+  group_by(month) %>%
+  summarise(avg_month = mean(count)) 
+
+time_avg<-df%>%
+  group_by(time)%>%
+  summarise(avg_time=mean(count))
+
+weather_avg <- df %>% 
+  group_by(weather_code) %>%
+  summarise(avg_counts = mean(count))
+
+weather_avg$weather_code <- as.factor(weather_avg$weather_code)
+levels(weather_avg$weather_code) <- c("Clear", "Few Clouds", "Broken Clouds", "Cloudy", "Rain", "Storm", "Snow")
+
+daily_avg <- df %>% 
+  group_by(wday(timestamp, label = TRUE, abbr = TRUE)) %>%
+            rename(day_name = "wday(timestamp, label = TRUE, abbr = TRUE)") %>%
+  summarise(avg_daily = mean(count))
+
+```
+
+Grafico de barras por estacion
+```{r, echo=FALSE}
+ggplot(seasons_avg, aes(season, avg_season, fill = season)) +
+  geom_col(show.legend = FALSE) + labs(x = "Estacion", y = "Promedio de cantidad de bicicletas", title = "Promedio de London Bike Shares por estación (2015-2017)", alt = "Grafico de barras que muestra el promedio de London bike shares por estación desde Enero del 2015 hasta Enero de 2017") +
+scale_x_continuous(breaks = 0:3, labels = c("Spring", "Summer", "Fall", "Winter"))+ scale_fill_gradient(labels = c("Spring", "Summer", "Fall", "Winter"), low = '#7AC5CD', high = '#7AC5CD')
+
+
+```
+
+Grafico de barras por mes
+```{r, echo=FALSE}
+ggplot(monthly_avg, aes(month, avg_month, fill=month)) +
+geom_col(show.legend = FALSE) +
+labs(x = "Mes", y = "Promedio de la cantidad", title = "Promedio de la cantidad de London Bike Shares por mes (2015-2017)", alt = "Grafico de barras que muestra el Promedio de la cantidad de London Bike Shares por mes desde Enero 2015 a Enero 2017")+
+scale_x_continuous( breaks = 1:12, labels = c("Ene", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec") ) +
+scale_fill_gradient2(low = '#DBE4EE', high = '#DBE4EE', mid = '#0077B6', midpoint = 7)
+```
+
+Grafico de Barras por dia de la semana
+```{r, echo=FALSE}
+ggplot(daily_avg, aes(day_name, avg_daily, fill = day_name)) +
+geom_col(show.legend = FALSE) +
+labs(x = "Día", y = "Promedio de la cantidad", title = "Promedio de la cantidad de London Bike Shares por día de la semana (2015-2017)", alt = "Grafico de barras que muestra el Promedio de la cantidad de London Bike Shares por día de la semana desde Enero 2015 a Enero 2017") +
+scale_fill_manual(values = c('#145277', '#266785', '#397c93', '#4c91a1', '#5ea6af', '#71bbbd', '#83d0cb'))
+```
+
+Grafico de Barras por codigo de tiempo
+```{r, echo=FALSE}
+ggplot(weather_avg, aes(weather_code, avg_counts, fill = weather_code)) +
+geom_col(show.legend = FALSE) +
+theme_minimal() +
+labs(x = "Tipo de clima", y = "Promedio de la cantidad", title = "Promedio de la cantidad de London Bike Shares por tipo de clima (2015-2017)", alt = "Grafico de barras que muestra el Promedio de la cantidad de London Bike Shares por tipo de clima desde Enero 2015 a Enero 2017") +
+scale_fill_manual(values = c('#87CEEB','#6CA6CD','#B9D3EE','#9FB6CD','#6C7B8B','#838B8B','#EEE9E9'))
+```
+
+Linea de tiempo por hora
+```{r, echo=FALSE}
+ggplot (time_avg, aes (time, avg_time)) +
+  geom_area(fill = '#87CEEB', alpha = 0.9)+
+       geom_line (colour='#87CEEB')
+```
+
+#Conclusiones
+
+Sobre la base:
+
+ -A la base le faltan más variables categorias que ayuden a obtener un análisis más profundo acerca del tema
+ 
+ -Es necesaria una actualización del uso del sistema de alquiler desde el 2017 al día de hoy, para poder así un análisis más extensivo y conocer como siguió funcionando en la ciudad de Londres.
+ 
+ -Sería interesante agregar información acerca del tiempo de uso y lugares de partida y de llegada para conocer aún más que tipo de uso se la da a las biciletas.
+ 
+Sobre el objetivo:
+
+ -La utilización de las bicicletas aumenta en las estaciones de buen clima.
+ 
+ -No se ven diferencias en el uso durante los días de la semana
+ 
+ -Durante las horas “pico” del día, las personas utilizan aún más las bicicletas.
+ 
+ -Es interesante notar como ante un clima feo y lluvioso, la cantidad de bicicletas sigue teniendo un número alto.
+ 
+ A partir de estas conclusiones, es posible dedicir en que momento es necesario aumentar la oferta de bicicletas en la ciudad.
+ 
+#Posibles usos
+
+-Sería interesante conectar esta base con la de otros paises que tenga este mismo sistema de alquiler de bicicletas, para conocer si hay algo diferente o funcionan de la misma manera.
+
+-Al conocer la cantidad de uso de bicicletas en la ciudad de Londres, esto permite generar nuevas campañas de concientización del medio ambiente y el descenso del uso del auto.
